@@ -1852,6 +1852,64 @@ func (f *Font) Name(b *Buffer, id NameID) (string, error) {
 	return "", ErrNotFound
 }
 
+
+// Name returns the name value keyed by the given NameID and LanguageID.
+func (f *Font) NameByLang(b *Buffer, id NameID, languageID uint16) (string, error) {
+	if b == nil {
+		b = &Buffer{}
+	}
+
+	const headerSize, entrySize = 6, 12
+	if f.name.length < headerSize {
+		return "", errInvalidNameTable
+	}
+	buf, err := b.view(&f.src, int(f.name.offset), headerSize)
+	if err != nil {
+		return "", err
+	}
+	numSubtables := u16(buf[2:])
+	if f.name.length < headerSize+entrySize*uint32(numSubtables) {
+		return "", errInvalidNameTable
+	}
+	stringOffset := u16(buf[4:])
+
+	seen := false
+	for i, n := 0, int(numSubtables); i < n; i++ {
+		buf, err := b.view(&f.src, int(f.name.offset)+headerSize+entrySize*i, entrySize)
+		if err != nil {
+			return "", err
+		}
+		if u16(buf[6:]) != uint16(id) {
+			continue
+		}
+		if u16(buf[4:]) != languageID {
+			continue
+		}
+		seen = true
+
+		var stringify func([]byte) (string, error)
+		switch u32(buf) {
+		default:
+			continue
+		case pidWindows<<16 | psidWindowsUCS2:
+			stringify = stringifyUCS2
+		}
+
+		nameLength := u16(buf[8:])
+		nameOffset := u16(buf[10:])
+		buf, err = b.view(&f.src, int(f.name.offset)+int(nameOffset)+int(stringOffset), int(nameLength))
+		if err != nil {
+			return "", err
+		}
+		return stringify(buf)
+	}
+
+	if seen {
+		return "", errUnsupportedPlatformEncoding
+	}
+	return "", ErrNotFound
+}
+
 func stringifyMacintosh(b []byte) (string, error) {
 	for _, c := range b {
 		if c >= 0x80 {
