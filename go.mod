@@ -1,4 +1,4 @@
-module golang.org/x/image
+module github.com/wxbool/image
 
 go 1.18
 
